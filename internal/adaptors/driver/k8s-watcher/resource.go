@@ -41,7 +41,9 @@ func WatchXRDInstances(ctx context.Context, logger ports.Logger) error {
 	       Version:  "v1",
 	       Resource: "compositeresourcedefinitions",
        }
-       crdList, err := dynClient.Resource(crdGVR).List(ctx, metav1.ListOptions{})
+       crdList, err := dynClient.Resource(crdGVR).List(ctx, metav1.ListOptions{
+			LabelSelector: "blueprint-name",	
+	   })
        if err != nil {
 	       logger.Error("failed to list XRDs: ", err)
 	       return err
@@ -56,11 +58,31 @@ func WatchXRDInstances(ctx context.Context, logger ports.Logger) error {
 	       group, _, _ := unstructured.NestedString(spec, "group")
 	       names, _, _ := unstructured.NestedMap(spec, "names")
 	       plural, _, _ := unstructured.NestedString(names, "plural")
-	       version, _, _ := unstructured.NestedString(spec, "versions", "0", "name")
 	       scope, _, _ := unstructured.NestedString(spec, "scope")
+
+	       // Find the version with referenceable=true
+	       var version string
+	       if versions, ok, _ := unstructured.NestedSlice(spec, "versions"); ok {
+		       for _, v := range versions {
+			       vmap, ok := v.(map[string]interface{})
+			       if !ok {
+				       continue
+			       }
+			       ref, ok := vmap["referenceable"].(bool)
+			       if ok && ref {
+				       if name, ok := vmap["name"].(string); ok {
+					       version = name
+					       break
+				       }
+			       }
+		       }
+		       
+	       }
+
 	       if group == "" || plural == "" || version == "" {
 		       continue
 	       }
+
 	       gvr := schema.GroupVersionResource{
 		       Group:    group,
 		       Version:  version,
@@ -79,7 +101,7 @@ func watchCompositeResource(ctx context.Context, dynClient dynamic.Interface, gv
 		       logger.Error("Recovered from panic in watchCompositeResource: ", r)
 	       }
        }()
-       labelSelector := "blueprint-name"
+      
        for {
 	       select {
 	       case <-ctx.Done():
@@ -90,9 +112,9 @@ func watchCompositeResource(ctx context.Context, dynClient dynamic.Interface, gv
 	       var watcher watch.Interface
 	       var err error
 	       if scope == "Namespaced" {
-		       watcher, err = dynClient.Resource(gvr).Namespace("").Watch(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+		       watcher, err = dynClient.Resource(gvr).Namespace("").Watch(ctx, metav1.ListOptions{})
 	       } else {
-		       watcher, err = dynClient.Resource(gvr).Watch(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+		       watcher, err = dynClient.Resource(gvr).Watch(ctx, metav1.ListOptions{})
 	       }
 	       if err != nil {
 		       logger.Error("Failed to watch ", gvr.String(), ": ", err)
