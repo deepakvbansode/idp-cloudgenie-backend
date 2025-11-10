@@ -36,7 +36,7 @@ import (
 		if err != nil {
 			logger.Panic("Failed to initialize MongoDB repository: %v", err)
 		}
-		resourceService := usecases.NewResourceService(logger, githubAdaptor, mongoRepository)
+		resourceService := usecases.NewResourceService(logger, githubAdaptor, mongoRepository, crossplaneAdaptor)
 		server := httpserver.NewServer(logger, config, blueprintService, resourceService)
 
 		ctx, cancel := context.WithCancel(context.Background())

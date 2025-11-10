@@ -23,7 +23,7 @@ func NewRepositoryAdaptor(logger ports.Logger, config config.MongoConfig) *Repos
 	defer cancel()
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(config.URI))
 	if err != nil {
-		logger.Error("Failed to connect to MongoDB:", err)
+		logger.Panic("Failed to connect to MongoDB:", err)
 		return nil
 	}
 	collection := client.Database(config.Database).Collection(config.Collection)
@@ -35,9 +35,8 @@ func NewRepositoryAdaptor(logger ports.Logger, config config.MongoConfig) *Repos
 	}
 }
 
-func (r *RepositoryAdaptor) SaveResource(resource *entities.Resource) (*entities.Resource, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func (r *RepositoryAdaptor) SaveResource(ctx context.Context,resource *entities.Resource) (*entities.Resource, error) {
+	resource.ID = resource.Name
 	_, err := r.collection.InsertOne(ctx, resource)
 	if err != nil {
 		r.logger.Error("Failed to insert resource:", err)
@@ -47,7 +46,7 @@ func (r *RepositoryAdaptor) SaveResource(resource *entities.Resource) (*entities
 }
 
 
-func (r *RepositoryAdaptor) DeleteResource(id string) error {
+func (r *RepositoryAdaptor) DeleteResource(ctx context.Context,id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	filter := bson.M{"_id": id}
@@ -59,7 +58,7 @@ func (r *RepositoryAdaptor) DeleteResource(id string) error {
 	return nil
 }
 
-func (r *RepositoryAdaptor) GetResource(id string) (*entities.Resource, error) {
+func (r *RepositoryAdaptor) GetResource(ctx context.Context,id string) (*entities.Resource, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	filter := bson.M{"_id": id}
@@ -75,7 +74,7 @@ func (r *RepositoryAdaptor) GetResource(id string) (*entities.Resource, error) {
 	return &resource, nil
 }
 
-func (r *RepositoryAdaptor) ListResources() ([]entities.Resource, error) {
+func (r *RepositoryAdaptor) ListResources(ctx context.Context,) ([]entities.Resource, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cursor, err := r.collection.Find(ctx, bson.M{})
@@ -102,7 +101,7 @@ func (r *RepositoryAdaptor) ListResources() ([]entities.Resource, error) {
 
 
 
-func (r *RepositoryAdaptor) UpdateResourceStatus(id string, status string) error {
+func (r *RepositoryAdaptor) UpdateResourceStatus(ctx context.Context,id string, status string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	filter := bson.M{"_id": id}

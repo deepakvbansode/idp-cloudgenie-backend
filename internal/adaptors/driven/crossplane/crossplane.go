@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"sigs.k8s.io/yaml"
+
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/common/constants"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/common/k8s"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/common/openapischema"
@@ -93,11 +95,11 @@ func (cp *CrossplaneAdaptor) ListBlueprints(ctx context.Context) ([]entities.Blu
        for _, item := range xrdList.Items {
 	       metadata, _ := item["metadata"].(map[string]interface{})
 	       spec, _ := item["spec"].(map[string]interface{})
-	       id := ""
+	       kind := ""
 	       name := ""
 	       if metadata != nil {
 		       if nameVal, ok := metadata["name"].(string); ok {
-			       id = nameVal
+			       kind = nameVal
 		       }
 		       // name from label 'blueprint-name'
 		       if labels, ok := metadata["labels"].(map[string]interface{}); ok {
@@ -170,7 +172,7 @@ func (cp *CrossplaneAdaptor) ListBlueprints(ctx context.Context) ([]entities.Blu
 	       }
 
 	       blueprints = append(blueprints, entities.Blueprint{
-		       ID:          id,
+		       Kind:          kind,
 		       Name:        name,
 		       Description: description,
 		       Parameters:  parameters,
@@ -181,3 +183,36 @@ func (cp *CrossplaneAdaptor) ListBlueprints(ctx context.Context) ([]entities.Blu
        return blueprints, nil
 }
 
+// BuildXRD builds an XRD YAML from a resource and blueprint, validating required fields
+func (cp *CrossplaneAdaptor) BuildXRD(ctx context.Context,resource *entities.Resource, blueprint *entities.Blueprint) (string, error) {
+	requiredMissing := []string{}
+	filteredSpec := map[string]interface{}{}
+	for pname, param := range blueprint.Parameters {
+		val, ok := resource.Spec[pname]
+		if param.Required && (!ok || val == nil || (param.Type == "string" && val == "")) {
+			requiredMissing = append(requiredMissing, pname)
+		}
+		if ok {
+			filteredSpec[pname] = val
+		}
+	}
+	if len(requiredMissing) > 0 {
+		return "", fmt.Errorf("missing required fields in spec: %v", requiredMissing)
+	}
+	xrd := map[string]interface{}{
+		"apiVersion": fmt.Sprintf("%s/%s", blueprint.Category, blueprint.Version),
+		"kind": blueprint.Kind,
+		"metadata": map[string]interface{}{
+			"name": resource.Name,
+			"annotations": map[string]interface{}{
+				"description": resource.Description,
+			},
+		},
+		"spec": filteredSpec,
+	}
+	xrdYAML, err := yaml.Marshal(xrd)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal XRD to YAML: %w", err)
+	}
+	return string(xrdYAML), nil
+}
