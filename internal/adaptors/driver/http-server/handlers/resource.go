@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/common/constants"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/common/errors"
@@ -10,6 +11,15 @@ import (
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/core/ports"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/core/usecases"
 )
+
+// extractIDFromPath extracts the last segment from the URL path as the resource ID
+func extractIDFromPath(r *http.Request) string {
+       parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+       if len(parts) > 0 {
+               return parts[len(parts)-1]
+       }
+       return ""
+}
 
 func GetResourcesHandler(logger ports.Logger, resourceService *usecases.ResourceService) http.HandlerFunc {
        return func(w http.ResponseWriter, r *http.Request) {
@@ -25,11 +35,27 @@ func GetResourcesHandler(logger ports.Logger, resourceService *usecases.Resource
        }
 }
 
+
 func GetResourceHandler(logger ports.Logger, resourceService *usecases.ResourceService) http.HandlerFunc {
        return func(w http.ResponseWriter, r *http.Request) {
-	       // TODO: extract id from URL path
-		   logger.Panic("GetResourceHandler not implemented yet")
-	       w.WriteHeader(http.StatusNotImplemented)
+	       ctx := r.Context()
+	       id := extractIDFromPath(r)
+	       if id == "" {
+		       http.Error(w, "Missing resource id", http.StatusBadRequest)
+		       return
+	       }
+	       resource, err := resourceService.GetResource(ctx, id)
+	       if err != nil {
+		       http.Error(w, err.Error(), http.StatusInternalServerError)
+		       return
+	       }
+	       if resource == nil {
+		       http.Error(w, "Resource not found", http.StatusNotFound)
+		       return
+	       }
+	       w.Header().Set("Content-Type", "application/json")
+	       w.WriteHeader(http.StatusOK)
+	       json.NewEncoder(w).Encode(resource)
        }
 }
 
@@ -66,16 +92,43 @@ func CreateResourceHandler(logger ports.Logger, resourceService *usecases.Resour
 	}
 }
 
+
 func DeleteResourceHandler(logger ports.Logger, resourceService *usecases.ResourceService) http.HandlerFunc {
        return func(w http.ResponseWriter, r *http.Request) {
-	       // TODO: extract id from URL path and call DeleteResource
-	       w.WriteHeader(http.StatusNotImplemented)
+	       ctx := r.Context()
+	       id := extractIDFromPath(r)
+	       if id == "" {
+		       http.Error(w, "Missing resource id", http.StatusBadRequest)
+		       return
+	       }
+	       err := resourceService.DeleteResource(ctx, id)
+	       if err != nil {
+		       http.Error(w, err.Error(), http.StatusInternalServerError)
+		       return
+	       }
+	       w.WriteHeader(http.StatusNoContent)
        }
 }
 
-func UpdateResourceStatusHandler(logger ports.Logger,resourceService *usecases.ResourceService) http.HandlerFunc {
+
+func UpdateResourceStatusHandler(logger ports.Logger, resourceService *usecases.ResourceService) http.HandlerFunc {
        return func(w http.ResponseWriter, r *http.Request) {
-	       // TODO: extract id and status from URL/path/body and call UpdateResourceStatus
-	       w.WriteHeader(http.StatusNotImplemented)
+	       ctx := r.Context()
+	       id := extractIDFromPath(r)
+	       if id == "" {
+		       http.Error(w, "Missing resource id", http.StatusBadRequest)
+		       return
+	       }
+	       var status entities.ResourceStatus
+	       if err := json.NewDecoder(r.Body).Decode(&status); err != nil {
+		       http.Error(w, "Invalid status body", http.StatusBadRequest)
+		       return
+	       }
+	       err := resourceService.UpdateResourceStatus(ctx, id, status)
+	       if err != nil {
+		       http.Error(w, err.Error(), http.StatusInternalServerError)
+		       return
+	       }
+	       w.WriteHeader(http.StatusOK)
        }
 }
