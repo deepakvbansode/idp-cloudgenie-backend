@@ -12,7 +12,7 @@ type RepositoryPort interface {
 	DeleteResource(ctx context.Context, id string) error
 	GetResource(ctx context.Context, id string) (*entities.Resource, error)
 	ListResources(ctx context.Context) ([]entities.Resource, error)
-	UpdateResourceStatus(ctx context.Context, id string, status string) error
+	UpdateResourceStatus(ctx context.Context, resourceName string, status entities.ResourceStatus) error
 }
 
 // GithubPort defines the interface for Github operations

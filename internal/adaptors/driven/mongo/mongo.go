@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/common/constants"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/config"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/core/entities"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/core/ports"
@@ -36,10 +37,11 @@ func NewRepositoryAdaptor(logger ports.Logger, config config.MongoConfig) *Repos
 }
 
 func (r *RepositoryAdaptor) SaveResource(ctx context.Context,resource *entities.Resource) (*entities.Resource, error) {
+	log := r.logger.WithField("traceId", ctx.Value(constants.TraceIDKey))
 	resource.ID = resource.Name
 	_, err := r.collection.InsertOne(ctx, resource)
 	if err != nil {
-		r.logger.Error("Failed to insert resource:", err)
+		log.Error("Failed to insert resource:", err)
 		return nil, err
 	}
 	return resource, nil
@@ -47,20 +49,20 @@ func (r *RepositoryAdaptor) SaveResource(ctx context.Context,resource *entities.
 
 
 func (r *RepositoryAdaptor) DeleteResource(ctx context.Context,id string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	log := r.logger.WithField("traceId", ctx.Value(constants.TraceIDKey))
+	
 	filter := bson.M{"_id": id}
 	_, err := r.collection.DeleteOne(ctx, filter)
 	if err != nil {
-		r.logger.Error("Failed to delete resource:", err)
+		log.Error("Failed to delete resource:", err)
 		return err
 	}
 	return nil
 }
 
 func (r *RepositoryAdaptor) GetResource(ctx context.Context,id string) (*entities.Resource, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	log := r.logger.WithField("traceId", ctx.Value(constants.TraceIDKey))
+	
 	filter := bson.M{"_id": id}
 	var resource entities.Resource
 	err := r.collection.FindOne(ctx, filter).Decode(&resource)
@@ -68,18 +70,17 @@ func (r *RepositoryAdaptor) GetResource(ctx context.Context,id string) (*entitie
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
-		r.logger.Error("Failed to get resource:", err)
+		log.Error("Failed to get resource:", err)
 		return nil, err
 	}
 	return &resource, nil
 }
 
 func (r *RepositoryAdaptor) ListResources(ctx context.Context,) ([]entities.Resource, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	log := r.logger.WithField("traceId", ctx.Value(constants.TraceIDKey))
 	cursor, err := r.collection.Find(ctx, bson.M{})
 	if err != nil {
-		r.logger.Error("Failed to list resources:", err)
+		log.Error("Failed to list resources:", err)
 		return nil, err
 	}
 	defer cursor.Close(ctx)
@@ -87,13 +88,13 @@ func (r *RepositoryAdaptor) ListResources(ctx context.Context,) ([]entities.Reso
 	for cursor.Next(ctx) {
 		var resource entities.Resource
 		if err := cursor.Decode(&resource); err != nil {
-			r.logger.Error("Failed to decode resource:", err)
+			log.Error("Failed to decode resource:", err)
 			continue
 		}
 		resources = append(resources, resource)
 	}
 	if err := cursor.Err(); err != nil {
-		r.logger.Error("Cursor error:", err)
+		log.Error("Cursor error:", err)
 		return nil, err
 	}
 	return resources, nil
@@ -101,15 +102,23 @@ func (r *RepositoryAdaptor) ListResources(ctx context.Context,) ([]entities.Reso
 
 
 
-func (r *RepositoryAdaptor) UpdateResourceStatus(ctx context.Context,id string, status string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	filter := bson.M{"_id": id}
+func (r *RepositoryAdaptor) UpdateResourceStatus(ctx context.Context, resourceName string, status entities.ResourceStatus) error {
+	log := r.logger.WithField("traceId", ctx.Value(constants.TraceIDKey))
+	filter := bson.M{"name": resourceName}
 	update := bson.M{"$set": bson.M{"status": status, "updated_at": time.Now().Unix()}}
-	_, err := r.collection.UpdateOne(ctx, filter, update)
+	result, err := r.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
-		r.logger.Error("Failed to update resource status:", err)
+		log.Error("Failed to update resource status for name=", resourceName, ": ", err)
 		return err
+	}
+	if result.MatchedCount == 0 {
+		log.Warn("No resource found to update status for name=", resourceName)
+		return mongo.ErrNoDocuments
+	}
+	if result.ModifiedCount == 0 {
+		log.Info("Resource status for name=", resourceName, " was already up to date.")
+	} else {
+		log.Info("Resource status updated for name=", resourceName, " to status=", status)
 	}
 	return nil
 }

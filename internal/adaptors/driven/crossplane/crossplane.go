@@ -98,9 +98,7 @@ func (cp *CrossplaneAdaptor) ListBlueprints(ctx context.Context) ([]entities.Blu
 	       kind := ""
 	       name := ""
 	       if metadata != nil {
-		       if nameVal, ok := metadata["name"].(string); ok {
-			       kind = nameVal
-		       }
+		       
 		       // name from label 'blueprint-name'
 		       if labels, ok := metadata["labels"].(map[string]interface{}); ok {
 			       if n, ok := labels["blueprint-name"].(string); ok {
@@ -117,6 +115,9 @@ func (cp *CrossplaneAdaptor) ListBlueprints(ctx context.Context) ([]entities.Blu
 	       if spec != nil {
 		       if cat, ok := spec["group"].(string); ok {
 			       category = cat
+		       }
+			   if names, ok := spec["names"].(map[string]interface{}); ok {
+			       kind = names["kind"].(string)
 		       }
 		       // Find version object with Referenceable=true
 		       if verArr, ok := spec["versions"].([]interface{}); ok && len(verArr) > 0 {

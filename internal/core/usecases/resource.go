@@ -59,7 +59,7 @@ func (s *ResourceService) CreateResource(ctx context.Context, resource *entities
 
 	// 5. Push the XRD to github repo
 	repoName := "idp-cloudgenie-state"
-	xrdPath := fmt.Sprintf("resources/%s.yaml", resource.Name)
+	xrdPath := fmt.Sprintf("resources/%s/%s.yaml", resource.BlueprintName, resource.Name)
 	err = s.githubProvider.PushXRDToRepo(ctx, xrdYAML, repoName, xrdPath)
 	if err != nil {
 		return nil, err
@@ -116,7 +116,7 @@ func (s *ResourceService) ListResources(ctx context.Context) ([]entities.Resourc
 }
 
 
-func (s *ResourceService) UpdateResourceStatus(ctx context.Context, id string, status string) error {
+func (s *ResourceService) UpdateResourceStatus(ctx context.Context, resourceName string, status entities.ResourceStatus) error {
 	// Update status in db (repository)
-	return s.repository.UpdateResourceStatus(ctx, id, status)
+	return s.repository.UpdateResourceStatus(ctx, resourceName, status)
 }

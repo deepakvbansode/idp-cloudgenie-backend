@@ -46,7 +46,8 @@ import (
 		// Start watcher
 		watcherDone := make(chan struct{})
 		go func() {
-			err := k8swatcher.WatchXRDInstances(ctx, logger)
+			resourceWatcher := k8swatcher.NewResourceWatcher(logger, mongoRepository)
+			err := resourceWatcher.WatchXRDInstances(ctx)
 			if err != nil {
 				logger.Error("K8s watcher error: ", err)
 			}

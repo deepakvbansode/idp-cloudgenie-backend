@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/adaptors/driven/mongo"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/common/k8s"
+	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/core/entities"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/core/ports"
 	"github.com/google/uuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,23 +17,34 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
+type ResourceWatcher struct {
+	logger      ports.Logger
+	repoAdaptor *mongo.RepositoryAdaptor
+}
+
+func NewResourceWatcher(logger ports.Logger, repoAdaptor *mongo.RepositoryAdaptor) *ResourceWatcher {
+	return &ResourceWatcher{
+		logger:      logger,
+		repoAdaptor: repoAdaptor,
+	}
+}
 // WatchXRDInstances watches all XRD instances with label blueprint-name and logs their status with trace UUID
-func WatchXRDInstances(ctx context.Context, logger ports.Logger) error {
-       defer func() {
-	       if r := recover(); r != nil {
-		       logger.Error("Recovered from panic in WatchXRDInstances: ", r)
+func (r *ResourceWatcher) WatchXRDInstances(ctx context.Context) error {
+       defer func(r *ResourceWatcher) {
+	       if err := recover(); err != nil {
+		       r.logger.Error("Recovered from panic in WatchXRDInstances: ", err)
 	       }
-       }()
+       }(r)
        traceID := uuid.New().String()
-       logger = logger.WithField("trace_id", traceID)
+       r.logger = r.logger.WithField("trace_id", traceID)
        config, err := k8s.GetKubeConfig()
        if err != nil {
-	       logger.Error("failed to get kubeconfig: ", err)
+	       r.logger.Error("failed to get kubeconfig: ", err)
 	       return err
        }
        dynClient, err := dynamic.NewForConfig(config)
        if err != nil {
-	       logger.Error("failed to create dynamic client: ", err)
+	       r.logger.Error("failed to create dynamic client: ", err)
 	       return err
        }
 
@@ -45,7 +58,7 @@ func WatchXRDInstances(ctx context.Context, logger ports.Logger) error {
 			LabelSelector: "blueprint-name",	
 	   })
        if err != nil {
-	       logger.Error("failed to list XRDs: ", err)
+	       r.logger.Error("failed to list XRDs: ", err)
 	       return err
        }
 
@@ -88,24 +101,24 @@ func WatchXRDInstances(ctx context.Context, logger ports.Logger) error {
 		       Version:  version,
 		       Resource: plural,
 	       }
-	       go watchCompositeResource(ctx, dynClient, gvr, scope, logger)
+	       go r.watchCompositeResource(ctx, dynClient, gvr, scope)
        }
        // Block forever (or until context is cancelled)
        <-ctx.Done()
        return nil
 }
 
-func watchCompositeResource(ctx context.Context, dynClient dynamic.Interface, gvr schema.GroupVersionResource, scope string, logger ports.Logger) {
-       defer func() {
-	       if r := recover(); r != nil {
-		       logger.Error("Recovered from panic in watchCompositeResource: ", r)
+func (r *ResourceWatcher) watchCompositeResource(ctx context.Context, dynClient dynamic.Interface, gvr schema.GroupVersionResource, scope string) {
+       defer func(r *ResourceWatcher) {
+	       if err := recover(); err != nil {
+		       r.logger.Error("Recovered from panic in watchCompositeResource: ", err)
 	       }
-       }()
+       }(r)
       
        for {
 	       select {
 	       case <-ctx.Done():
-		       logger.Info("Context cancelled, stopping watcher for ", gvr.String())
+		       r.logger.Info("Context cancelled, stopping watcher for ", gvr.String())
 		       return
 	       default:
 	       }
@@ -117,36 +130,44 @@ func watchCompositeResource(ctx context.Context, dynClient dynamic.Interface, gv
 		       watcher, err = dynClient.Resource(gvr).Watch(ctx, metav1.ListOptions{})
 	       }
 	       if err != nil {
-		       logger.Error("Failed to watch ", gvr.String(), ": ", err)
+		       r.logger.Error("Failed to watch ", gvr.String(), ": ", err)
 		       time.Sleep(10 * time.Second)
 		       continue
 	       }
-	       logger.Info("Watching ", gvr.String(), " for resources with label blueprint-name...")
+	       r.logger.Info("Watching ", gvr.String(), " for resources with label blueprint-name...")
 	       for {
 		       select {
 		       case <-ctx.Done():
-			       logger.Info("Context cancelled, stopping event loop for ", gvr.String())
+			       r.logger.Info("Context cancelled, stopping event loop for ", gvr.String())
 			       watcher.Stop()
 			       return
 		       case event, ok := <-watcher.ResultChan():
 			       if !ok {
-				       logger.Info("Watcher channel closed for ", gvr.String())
+				       r.logger.Info("Watcher channel closed for ", gvr.String())
 				       return
 			       }
 			       u, ok := event.Object.(*unstructured.Unstructured)
 			       if !ok {
 				       continue
 			       }
-			       status, found, _ := unstructured.NestedFieldNoCopy(u.Object, "status")
-			       if found {
-				       statusJSON, _ := json.MarshalIndent(status, "", "  ")
-				       logger.Info(gvr.Resource, " ", u.GetName(), " status: ", string(statusJSON))
-			       } else {
-				       logger.Info(gvr.Resource, " ", u.GetName(), " has no status yet")
+		       status, found, _ := unstructured.NestedFieldNoCopy(u.Object, "status")
+		       if found {
+			       statusJSON, _ := json.MarshalIndent(status, "", "  ")
+			       r.logger.Info(gvr.Resource, " ", u.GetName(), " status: ", string(statusJSON))
+			       // Unmarshal status into entities.ResourceStatus struct
+			       var resourceStatus entities.ResourceStatus
+			       if err := json.Unmarshal(statusJSON, &resourceStatus); err != nil {
+				       r.logger.Error("Failed to unmarshal status for ", u.GetName(), ": ", err)
+				       continue
 			       }
+			       if err := r.repoAdaptor.UpdateResourceStatus(ctx, u.GetName(), resourceStatus); err != nil {
+				       r.logger.Error("Failed to update resource status in MongoDB for ", u.GetName(), ": ", err)
+			       }
+		       } else {
+			       r.logger.Info(gvr.Resource, " ", u.GetName(), " has no status yet")
+		       }
 		       }
 	       }
-	       // If the watcher channel closes, restart the watch
-	       time.Sleep(2 * time.Second)
+	       
        }
 }
