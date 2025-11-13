@@ -1,100 +1,41 @@
 package mcp
 
-// JSON-RPC types for MCP protocol
-type JSONRPCRequest struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
-}
+import (
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
 
-type JSONRPCResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
-}
+// Use official SDK types as aliases for backward compatibility
+type (
+	// Tool represents an MCP tool (alias for SDK type)
+	Tool = mcp.Tool
 
-type RPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
-}
+	// CallToolParams represents tool call parameters (alias for SDK type)
+	CallToolParams = mcp.CallToolParams
 
-// MCP Protocol types
-type InitializeParams struct {
-	ProtocolVersion string                 `json:"protocolVersion"`
-	Capabilities    map[string]interface{} `json:"capabilities"`
-	ClientInfo      ClientInfo             `json:"clientInfo"`
-}
+	// CallToolResult represents tool call result (alias for SDK type)
+	CallToolResult = mcp.CallToolResult
 
-type ClientInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
+	// Content represents MCP content (alias for SDK type)
+	Content = mcp.Content
 
-type InitializeResult struct {
-	ProtocolVersion string                 `json:"protocolVersion"`
-	Capabilities    map[string]interface{} `json:"capabilities"`
-	ServerInfo      ServerInfo             `json:"serverInfo"`
-}
+	// TextContent represents text content (alias for SDK type)
+	TextContent = mcp.TextContent
+)
 
-type ServerInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-// Tools
-type ToolsListResult struct {
-	Tools []Tool `json:"tools"`
-}
-
-type Tool struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"inputSchema"`
-}
-
-type ToolCallParams struct {
-	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments"`
-}
-
-type ToolCallResult struct {
-	Content []ToolContent `json:"content"`
-	IsError bool          `json:"isError,omitempty"`
-}
-
+// ToolContent is a helper to extract text from Content interface
 type ToolContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
 
-// Resources
-type ResourcesListResult struct {
-	Resources []Resource `json:"resources"`
+// FormatToolResult converts CallToolResult to a readable string
+func FormatToolResult(result *mcp.CallToolResult) string {
+	var text string
+	for _, content := range result.Content {
+		if textContent, ok := content.(*mcp.TextContent); ok {
+			text += textContent.Text + "\n"
+		}
+	}
+	return text
 }
 
-type Resource struct {
-	URI         string `json:"uri"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	MimeType    string `json:"mimeType,omitempty"`
-}
-
-// Prompts
-type PromptsListResult struct {
-	Prompts []Prompt `json:"prompts"`
-}
-
-type Prompt struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Arguments   []PromptArgument `json:"arguments,omitempty"`
-}
-
-type PromptArgument struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Required    bool   `json:"required,omitempty"`
-}

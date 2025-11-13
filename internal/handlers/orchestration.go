@@ -17,7 +17,7 @@ const MaxToolIterations = 5
 type OrchestrationService struct {
 	mcpClient  *mcp.Client
 	aiProvider ai.Provider
-	tools      []mcp.Tool
+	tools      []*mcp.Tool
 }
 
 func NewOrchestrationService(mcpClient *mcp.Client, aiProvider ai.Provider) (*OrchestrationService, error) {
@@ -154,10 +154,18 @@ func (s *OrchestrationService) ProcessPrompt(ctx context.Context, request *model
 func (s *OrchestrationService) GetAvailableTools() []models.ToolInfo {
 	toolInfos := make([]models.ToolInfo, len(s.tools))
 	for i, tool := range s.tools {
+		// Type assert InputSchema to map[string]interface{}
+		var params map[string]interface{}
+		if tool.InputSchema != nil {
+			if schema, ok := tool.InputSchema.(map[string]interface{}); ok {
+				params = schema
+			}
+		}
+		
 		toolInfos[i] = models.ToolInfo{
 			Name:        tool.Name,
 			Description: tool.Description,
-			Parameters:  tool.InputSchema,
+			Parameters:  params,
 		}
 	}
 	return toolInfos
@@ -188,15 +196,16 @@ func (s *OrchestrationService) HealthCheck(ctx context.Context) map[string]strin
 }
 
 // formatToolResult formats the MCP tool result into a string
-func formatToolResult(result *mcp.ToolCallResult) string {
+func formatToolResult(result *mcp.CallToolResult) string {
 	if len(result.Content) == 0 {
 		return "Tool executed successfully with no output"
 	}
 
 	var textParts []string
 	for _, content := range result.Content {
-		if content.Type == "text" {
-			textParts = append(textParts, content.Text)
+		// Use type assertion to extract text from Content interface
+		if textContent, ok := content.(*mcp.TextContent); ok {
+			textParts = append(textParts, textContent.Text)
 		}
 	}
 

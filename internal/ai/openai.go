@@ -35,7 +35,7 @@ func (p *OpenAIProvider) GetProviderName() string {
 	return "openai"
 }
 
-func (p *OpenAIProvider) Chat(ctx context.Context, prompt string, tools []mcp.Tool, conversationHistory []Message) (*Response, error) {
+func (p *OpenAIProvider) Chat(ctx context.Context, prompt string, tools []*mcp.Tool, conversationHistory []Message) (*Response, error) {
 	// Build messages from conversation history
 	messages := []openai.ChatCompletionMessage{}
 

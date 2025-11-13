@@ -9,7 +9,7 @@ import (
 
 // Provider defines the interface for AI providers
 type Provider interface {
-	Chat(ctx context.Context, prompt string, tools []mcp.Tool, conversationHistory []Message) (*Response, error)
+	Chat(ctx context.Context, prompt string, tools []*mcp.Tool, conversationHistory []Message) (*Response, error)
 	GetProviderName() string
 }
 
@@ -57,6 +57,8 @@ func NewProvider(providerName, apiKey, model string) (Provider, error) {
 		return NewOpenAIProvider(apiKey, model)
 	case "anthropic":
 		return NewAnthropicProvider(apiKey, model)
+	case "gemini":
+		return NewGeminiProvider(apiKey, model)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", providerName)
 	}

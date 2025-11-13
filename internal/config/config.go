@@ -13,14 +13,16 @@ type Config struct {
 	ServerPort string
 
 	// AI Provider configuration
-	DefaultAIProvider string // "openai" or "anthropic"
+	DefaultAIProvider string // "openai", "anthropic", or "gemini"
 	OpenAIAPIKey      string
 	OpenAIModel       string
 	AnthropicAPIKey   string
 	AnthropicModel    string
+	GeminiAPIKey      string
+	GeminiModel       string
 
 	// MCP Server configuration
-	MCPServerPath         string
+	MCPServerURL          string
 	CloudGenieBackendURL  string
 
 	// CORS configuration
@@ -40,22 +42,27 @@ func Load() (*Config, error) {
 		OpenAIModel:           getEnv("OPENAI_MODEL", "gpt-4-turbo-preview"),
 		AnthropicAPIKey:       getEnv("ANTHROPIC_API_KEY", ""),
 		AnthropicModel:        getEnv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
-		MCPServerPath:         getEnv("MCP_SERVER_PATH", ""),
+		GeminiAPIKey:          getEnv("GEMINI_API_KEY", ""),
+		GeminiModel:           getEnv("GEMINI_MODEL", "gemini-1.5-pro"),
+		MCPServerURL:          getEnv("MCP_SERVER_URL", "http://localhost:3000"),
 		CloudGenieBackendURL:  getEnv("CLOUDGENIE_BACKEND_URL", "http://localhost:8080"),
 		AllowedOrigins:        []string{getEnv("ALLOWED_ORIGINS", "*")},
 	}
 
-	// Validate required configuration
+	
+
+	// Validate required fields based on AI provider
 	if cfg.DefaultAIProvider == "openai" && cfg.OpenAIAPIKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY is required when using OpenAI provider")
+		return nil, fmt.Errorf("OPENAI_API_KEY is required when using openai provider")
 	}
-
 	if cfg.DefaultAIProvider == "anthropic" && cfg.AnthropicAPIKey == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY is required when using Anthropic provider")
+		return nil, fmt.Errorf("ANTHROPIC_API_KEY is required when using anthropic provider")
 	}
-
-	if cfg.MCPServerPath == "" {
-		return nil, fmt.Errorf("MCP_SERVER_PATH is required")
+	if cfg.DefaultAIProvider == "gemini" && cfg.GeminiAPIKey == "" {
+		return nil, fmt.Errorf("GEMINI_API_KEY is required when using gemini provider")
+	}
+	if cfg.MCPServerURL == "" {
+		return nil, fmt.Errorf("MCP_SERVER_URL is required")
 	}
 
 	return cfg, nil

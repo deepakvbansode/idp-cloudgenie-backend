@@ -24,7 +24,7 @@ func main() {
 
 	log.Println("Starting CloudGenie Backend Service...")
 	log.Printf("AI Provider: %s", cfg.DefaultAIProvider)
-	log.Printf("MCP Server Path: %s", cfg.MCPServerPath)
+	log.Printf("MCP Server URL: %s", cfg.MCPServerURL)
 	log.Printf("CloudGenie Backend URL: %s", cfg.CloudGenieBackendURL)
 
 	// Initialize MCP Client
@@ -33,7 +33,7 @@ func main() {
 		fmt.Sprintf("CLOUDGENIE_BACKEND_URL=%s", cfg.CloudGenieBackendURL),
 	}
 	
-	mcpClient, err := mcp.NewClient(cfg.MCPServerPath, mcpEnv)
+	mcpClient, err := mcp.NewClient(cfg.MCPServerURL, mcpEnv)
 	if err != nil {
 		log.Fatalf("Failed to create MCP client: %v", err)
 	}
@@ -47,6 +47,8 @@ func main() {
 		aiProvider, err = ai.NewOpenAIProvider(cfg.OpenAIAPIKey, cfg.OpenAIModel)
 	} else if cfg.DefaultAIProvider == "anthropic" {
 		aiProvider, err = ai.NewAnthropicProvider(cfg.AnthropicAPIKey, cfg.AnthropicModel)
+	} else if cfg.DefaultAIProvider == "gemini" {
+		aiProvider, err = ai.NewGeminiProvider(cfg.GeminiAPIKey, cfg.GeminiModel)
 	} else {
 		log.Fatalf("Unsupported AI provider: %s", cfg.DefaultAIProvider)
 	}

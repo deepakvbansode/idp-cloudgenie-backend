@@ -31,7 +31,7 @@ func (p *AnthropicProvider) GetProviderName() string {
 	return "anthropic"
 }
 
-func (p *AnthropicProvider) Chat(ctx context.Context, prompt string, tools []mcp.Tool, conversationHistory []Message) (*Response, error) {
+func (p *AnthropicProvider) Chat(ctx context.Context, prompt string, tools []*mcp.Tool, conversationHistory []Message) (*Response, error) {
 	// TODO: Implement Anthropic API integration
 	// For now, return a basic response
 	return &Response{
