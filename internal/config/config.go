@@ -13,13 +13,16 @@ type Config struct {
 	ServerPort string
 
 	// AI Provider configuration
-	DefaultAIProvider string // "openai", "anthropic", or "gemini"
+	DefaultAIProvider string // "openai", "anthropic", "gemini", or "glean"
 	OpenAIAPIKey      string
 	OpenAIModel       string
 	AnthropicAPIKey   string
 	AnthropicModel    string
 	GeminiAPIKey      string
 	GeminiModel       string
+	GleanAPIKey       string
+	GleanInstance     string // Company instance name (e.g., "your-company")
+	GleanModel        string
 
 	// MCP Server configuration
 	MCPServerURL          string
@@ -44,6 +47,9 @@ func Load() (*Config, error) {
 		AnthropicModel:        getEnv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
 		GeminiAPIKey:          getEnv("GEMINI_API_KEY", ""),
 		GeminiModel:           getEnv("GEMINI_MODEL", "gemini-1.5-pro"),
+		GleanAPIKey:           getEnv("GLEAN_API_KEY", ""),
+		GleanInstance:         getEnv("GLEAN_INSTANCE", ""),
+		GleanModel:            getEnv("GLEAN_MODEL", "glean-default"),
 		MCPServerURL:          getEnv("MCP_SERVER_URL", "http://localhost:3000"),
 		CloudGenieBackendURL:  getEnv("CLOUDGENIE_BACKEND_URL", "http://localhost:8080"),
 		AllowedOrigins:        []string{getEnv("ALLOWED_ORIGINS", "*")},
@@ -60,6 +66,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.DefaultAIProvider == "gemini" && cfg.GeminiAPIKey == "" {
 		return nil, fmt.Errorf("GEMINI_API_KEY is required when using gemini provider")
+	}
+	if cfg.DefaultAIProvider == "glean" && cfg.GleanAPIKey == "" {
+		return nil, fmt.Errorf("GLEAN_API_KEY is required when using glean provider")
 	}
 	if cfg.MCPServerURL == "" {
 		return nil, fmt.Errorf("MCP_SERVER_URL is required")

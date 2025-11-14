@@ -49,6 +49,8 @@ func main() {
 		aiProvider, err = ai.NewAnthropicProvider(cfg.AnthropicAPIKey, cfg.AnthropicModel)
 	} else if cfg.DefaultAIProvider == "gemini" {
 		aiProvider, err = ai.NewGeminiProvider(cfg.GeminiAPIKey, cfg.GeminiModel)
+	} else if cfg.DefaultAIProvider == "glean" {
+		aiProvider, err = ai.NewGleanProvider(cfg.GleanAPIKey, cfg.GleanInstance, cfg.GleanModel)
 	} else {
 		log.Fatalf("Unsupported AI provider: %s", cfg.DefaultAIProvider)
 	}

@@ -2,22 +2,112 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
+	"time"
 
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/ai"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/mcp"
 	"github.com/deepakvbansode/idp-cloudgenie-backend/internal/models"
 )
 
-const MaxToolIterations = 5
+const (
+	MaxToolIterations = 5
+	CacheTTL          = 5 * time.Minute // Cache results for 5 minutes
+)
+
+// ResultCache provides thread-safe caching of tool results with TTL
+type ResultCache struct {
+	store map[string]*CachedResult
+	mu    sync.RWMutex
+	ttl   time.Duration
+}
+
+type CachedResult struct {
+	Content   string
+	Timestamp time.Time
+	IsError   bool
+}
+
+// NewResultCache creates a new result cache with specified TTL
+func NewResultCache(ttl time.Duration) *ResultCache {
+	cache := &ResultCache{
+		store: make(map[string]*CachedResult),
+		ttl:   ttl,
+	}
+	
+	// Start cleanup goroutine
+	go cache.cleanupExpired()
+	
+	return cache
+}
+
+// Get retrieves a cached result if it exists and hasn't expired
+func (c *ResultCache) Get(key string) (*CachedResult, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	result, exists := c.store[key]
+	if !exists {
+		return nil, false
+	}
+	
+	// Check if expired
+	if time.Since(result.Timestamp) > c.ttl {
+		return nil, false
+	}
+	
+	return result, true
+}
+
+// Set stores a result in the cache
+func (c *ResultCache) Set(key string, content string, isError bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	c.store[key] = &CachedResult{
+		Content:   content,
+		Timestamp: time.Now(),
+		IsError:   isError,
+	}
+}
+
+// cleanupExpired removes expired entries every minute
+func (c *ResultCache) cleanupExpired() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		c.mu.Lock()
+		now := time.Now()
+		for key, result := range c.store {
+			if now.Sub(result.Timestamp) > c.ttl {
+				delete(c.store, key)
+			}
+		}
+		c.mu.Unlock()
+	}
+}
+
+// Stats returns cache statistics
+func (c *ResultCache) Stats() map[string]int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	return map[string]int{
+		"total_entries": len(c.store),
+	}
+}
 
 // OrchestrationService coordinates between AI and MCP server
 type OrchestrationService struct {
-	mcpClient  *mcp.Client
-	aiProvider ai.Provider
-	tools      []*mcp.Tool
+	mcpClient   *mcp.Client
+	aiProvider  ai.Provider
+	tools       []*mcp.Tool
+	resultCache *ResultCache
 }
 
 func NewOrchestrationService(mcpClient *mcp.Client, aiProvider ai.Provider) (*OrchestrationService, error) {
@@ -32,10 +122,25 @@ func NewOrchestrationService(mcpClient *mcp.Client, aiProvider ai.Provider) (*Or
 	}
 
 	return &OrchestrationService{
-		mcpClient:  mcpClient,
-		aiProvider: aiProvider,
-		tools:      tools,
+		mcpClient:   mcpClient,
+		aiProvider:  aiProvider,
+		tools:       tools,
+		resultCache: NewResultCache(CacheTTL),
 	}, nil
+}
+
+// generateCacheKey creates a deterministic cache key from tool name and arguments
+func generateCacheKey(toolName string, args map[string]interface{}) string {
+	// Serialize arguments to JSON for consistent hashing
+	argsJSON, err := json.Marshal(args)
+	if err != nil {
+		// If marshaling fails, use tool name only (no caching benefit for this call)
+		return toolName
+	}
+	
+	// Create SHA256 hash of tool name + args
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%s:%s", toolName, argsJSON)))
+	return fmt.Sprintf("%s:%x", toolName, hash[:8]) // Use first 8 bytes for readability
 }
 
 // ProcessPrompt processes a user prompt and coordinates with AI and MCP
@@ -43,6 +148,10 @@ func (s *OrchestrationService) ProcessPrompt(ctx context.Context, request *model
 	conversationHistory := []ai.Message{}
 	allToolCalls := []models.ToolCall{}
 	allToolResults := []models.ToolResult{}
+	
+	// Cache metrics
+	cacheHits := 0
+	cacheMisses := 0
 
 	currentPrompt := request.Prompt
 	iteration := 0
@@ -69,10 +178,13 @@ func (s *OrchestrationService) ProcessPrompt(ctx context.Context, request *model
 				ToolCalls:   allToolCalls,
 				ToolResults: allToolResults,
 				Metadata: map[string]interface{}{
-					"iterations":     iteration,
-					"finish_reason":  aiResponse.FinishReason,
-					"provider":       s.aiProvider.GetProviderName(),
+					"iterations":      iteration,
+					"finish_reason":   aiResponse.FinishReason,
+					"provider":        s.aiProvider.GetProviderName(),
 					"tools_available": len(s.tools),
+					"cache_hits":      cacheHits,
+					"cache_misses":    cacheMisses,
+					"cache_stats":     s.resultCache.Stats(),
 				},
 			}, nil
 		}
@@ -82,33 +194,63 @@ func (s *OrchestrationService) ProcessPrompt(ctx context.Context, request *model
 		for _, toolCall := range aiResponse.ToolCalls {
 			log.Printf("Executing tool: %s with args: %v", toolCall.Name, toolCall.Arguments)
 
-			// Call MCP tool
-			mcpResult, err := s.mcpClient.CallTool(toolCall.Name, toolCall.Arguments)
-			if err != nil {
-				errMsg := fmt.Sprintf("Error calling tool %s: %v", toolCall.Name, err)
-				log.Printf(errMsg)
+			// Generate cache key
+			cacheKey := generateCacheKey(toolCall.Name, toolCall.Arguments)
+			
+			// Check cache first
+			var resultContent string
+			var isError bool
+			
+			if cached, found := s.resultCache.Get(cacheKey); found {
+				// Cache HIT
+				cacheHits++
+				resultContent = cached.Content
+				isError = cached.IsError
+				log.Printf("✓ Cache HIT for tool: %s (key: %s)", toolCall.Name, cacheKey)
+			} else {
+				// Cache MISS - call actual MCP tool
+				cacheMisses++
+				log.Printf("✗ Cache MISS for tool: %s (key: %s)", toolCall.Name, cacheKey)
 				
-				toolResults = append(toolResults, ai.ToolResult{
-					ToolCallID: toolCall.ID,
-					Content:    errMsg,
-					IsError:    true,
-				})
+				mcpResult, err := s.mcpClient.CallTool(toolCall.Name, toolCall.Arguments)
+				if err != nil {
+					errMsg := fmt.Sprintf("Error calling tool %s: %v", toolCall.Name, err)
+					log.Printf(errMsg)
+					
+					resultContent = errMsg
+					isError = true
+					
+					toolResults = append(toolResults, ai.ToolResult{
+						ToolCallID: toolCall.ID,
+						Content:    errMsg,
+						IsError:    true,
+					})
 
-				allToolResults = append(allToolResults, models.ToolResult{
-					ToolCallID: toolCall.ID,
-					Name:       toolCall.Name,
-					Content:    errMsg,
-					IsError:    true,
-				})
-				continue
+					allToolResults = append(allToolResults, models.ToolResult{
+						ToolCallID: toolCall.ID,
+						Name:       toolCall.Name,
+						Content:    errMsg,
+						IsError:    true,
+					})
+					continue
+				}
+
+				// Format and cache the result
+				resultContent = formatToolResult(mcpResult)
+				isError = mcpResult.IsError
+				
+				// Store in cache (don't cache errors)
+				if !isError {
+					s.resultCache.Set(cacheKey, resultContent, isError)
+					log.Printf("💾 Cached result for tool: %s", toolCall.Name)
+				}
 			}
-
-			// Format tool result
-			resultContent := formatToolResult(mcpResult)
+			
+			// Add to tool results
 			toolResults = append(toolResults, ai.ToolResult{
 				ToolCallID: toolCall.ID,
 				Content:    resultContent,
-				IsError:    mcpResult.IsError,
+				IsError:    isError,
 			})
 
 			// Track for response
@@ -122,7 +264,7 @@ func (s *OrchestrationService) ProcessPrompt(ctx context.Context, request *model
 				ToolCallID: toolCall.ID,
 				Name:       toolCall.Name,
 				Content:    resultContent,
-				IsError:    mcpResult.IsError,
+				IsError:    isError,
 			})
 		}
 
@@ -142,10 +284,13 @@ func (s *OrchestrationService) ProcessPrompt(ctx context.Context, request *model
 		ToolCalls:   allToolCalls,
 		ToolResults: allToolResults,
 		Metadata: map[string]interface{}{
-			"iterations":    iteration,
-			"max_reached":   true,
-			"provider":      s.aiProvider.GetProviderName(),
+			"iterations":      iteration,
+			"max_reached":     true,
+			"provider":        s.aiProvider.GetProviderName(),
 			"tools_available": len(s.tools),
+			"cache_hits":      cacheHits,
+			"cache_misses":    cacheMisses,
+			"cache_stats":     s.resultCache.Stats(),
 		},
 	}, nil
 }

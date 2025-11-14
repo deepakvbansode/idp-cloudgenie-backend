@@ -59,6 +59,11 @@ func NewProvider(providerName, apiKey, model string) (Provider, error) {
 		return NewAnthropicProvider(apiKey, model)
 	case "gemini":
 		return NewGeminiProvider(apiKey, model)
+	case "glean":
+		// For Glean, we need API URL as well, so we'll use a special format
+		// apiKey format can be "key" or we need to pass apiURL separately
+		// We'll need to modify this to accept apiURL - for now, use default
+		return NewGleanProvider(apiKey, "", model)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", providerName)
 	}
